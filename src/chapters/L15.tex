@@ -1,0 +1,681 @@
+\chapter{Stochastic Differential Equations}
+\label{sec:stochastic-differential-equations}
+
+The ordinary differential equations studied in the preceding chapter describe deterministic systems: under existence and uniqueness hypotheses, 
+an initial condition determines a trajectory on its interval of existence. Many biophysical systems, however, experience intrinsic fluctuations, 
+such as thermal noise, fluctuations in molecular counts in a genetic circuit, or synaptic noise in a neural network. To model these effects, we 
+extend $\dot{\bv}=f(\bv)$ by introducing a random driving term. The probability concepts and Gaussian limits developed in this chapter provide 
+the background for this extension. This chapter develops the full toolbox needed to \emph{use} such models in computational neuroscience: the 
+Wiener process and its quadratic variation (Section~\ref{sec:stochastic-differential-equations}), It\^o calculus and the change-of-variables 
+formula, the It\^o--Stratonovich dichotomy, moment equations, and numerical integration; the Fokker--Planck description of densities in one and 
+many dimensions (Section~\ref{sec:fokker-planck-section}); and finally time reversal of diffusions, which underlies score-based generative models 
+(Section~\ref{sec:reverse-time}).
+
+\subsection{Brownian Motion}
+
+\begin{definition}[Wiener Process]
+\label{def:wiener-process}
+A \emph{standard Wiener process}, or \emph{standard Brownian motion}, is a real-valued stochastic process $W(t)$, $t\ge0$, with the following 
+properties:
+\begin{enumerate}
+\item \textit{Initial value}: $W(0)=0$ almost surely.
+\item \textit{Independent increments}: it has independent increments: for any $0\leq t_0<t_1<\cdots<t_m$, the random variables $W(t_j)-W(t_{j-1})$, $j=1,\dots,m$, are jointly independent.
+\item \textit{Gaussian increments}: for $0\leq s<t$, the increment $W(t)-W(s)$ has distribution $\mathcal{N}(0,t-s)$.
+\item \textit{Continuity}: its sample paths $t\mapsto W(t)$ are almost surely continuous.
+\end{enumerate}
+An $m$-dimensional Wiener process $\bW=(W_1,\dots,W_m)^{\top}$ has independent standard Wiener components.
+\end{definition}
+
+\begin{remark}[Continuity without Differentiability]
+Brownian paths are almost surely nowhere differentiable, a result we do not prove here. The scale of an increment gives some intuition: over an 
+interval of length $\Delta t$, its standard deviation is $(\Delta t)^{1/2}$, so a typical difference quotient has magnitude of order
+
+\[
+\frac{\sqrt{\Delta t}}{\Delta t}=\frac{1}{\sqrt{\Delta t}},
+\] 
+
+which grows without bound as $\Delta t\to0$. This scaling is a heuristic, not a proof of nowhere differentiability. It explains why $\dot W$ 
+cannot be treated as an ordinary function and why an equation written informally as $\dot{\bv}=f(\bv)+\dot{\bW}$ is not a classical ODE. 
+A rigorous treatment requires stochastic integration.
+\end{remark}
+
+\input{figures/brownian-paths.tex}
+
+The decisive feature distinguishing stochastic from ordinary calculus is that the squared increments of a Wiener process do not vanish faster than 
+the time step. This is quantified by the quadratic variation.
+
+\begin{proposition}[Quadratic Variation]
+\label{prop:quadratic-variation}
+
+Let $0=t_0<t_1<\cdots<t_n=t$ be the uniform partition of $[0,t]$ with $\Delta t=t/n$ and $\Delta W_j=W(t_{j+1})-W(t_j)$. Then
+
+\[
+Q_n:=\sum_{j=0}^{n-1}(\Delta W_j)^2\;\xrightarrow[n\to\infty]{L^2}\;t .
+\]
+
+\end{proposition}
+
+\begin{proof}
+
+The $\Delta W_j$ are independent with $\Delta W_j\sim\mathcal N(0,\Delta t)$, hence $\E[(\Delta W_j)^2]=\Delta t$ and 
+$\var\big((\Delta W_j)^2\big)=\E[(\Delta W_j)^4]-\Delta t^2=3\Delta t^2-\Delta t^2=2\Delta t^2$. By independence,
+
+\[
+\E[Q_n]=n\Delta t=t,\qquad \var(Q_n)=2n\Delta t^2=\frac{2t^2}{n}\to0,
+\]
+
+so $\E\big[(Q_n-t)^2\big]=\var(Q_n)\to0$.
+\end{proof}
+
+Proposition~\ref{prop:quadratic-variation} is the rigorous content of the symbolic \emph{It\^o multiplication table}
+
+\begin{equation}
+\label{eq:ito-table}
+(\dd t)^2=0,\qquad \dd t\,\dd W_j=0,\qquad \dd W_j\,\dd W_k=\delta_{jk}\,\dd t,
+\end{equation}
+
+which says that, inside sums that are integrated, $(\Delta W)^2$ may be replaced by its deterministic mean $\Delta t$, whereas 
+$\Delta t\,\Delta W=O(\Delta t^{3/2})$ and $\Delta t^2$ are negligible. For a smooth function the corresponding sum $\sum(\Delta x)^2$ is 
+$O(\Delta t)$ and vanishes in the limit; for Brownian paths it does not. This is exactly why the chain rule acquires a second-order correction 
+below.
+
+\subsection{The Langevin Equation}
+
+\begin{definition}[It\^o Stochastic Differential Equation]
+\label{def:langevin-equation}
+An \emph{It\^o Langevin equation} has the form 
+
+\[
+\dd\bv(t)=f(\bv(t))\,\dd t+\sigma(\bv(t))\,\dd\bW(t)
+\]
+
+where $\bv(t)\in\R^d$, $f:\R^d\to\R^d$ is the deterministic \emph{drift}, $\bW$ is an $m$-dimensional Wiener process with independent components, and $\sigma:\R^d\to\R^{d\times m}$ is the noise-amplitude matrix. The diffusion covariance is $\sigma\sigma^{\top}$. The equation is interpreted in integral form:
+
+\begin{equation}
+\bv(t)=\bv(0)+\int_0^t f(\bv(s))\,\dd s
++\int_0^t\sigma(\bv(s))\,\dd\bW(s).
+\end{equation}
+
+The last term is an \emph{It\^o stochastic integral}. For a suitable adapted integrand, it is constructed as a limit of non-anticipating sums; for regular integrands, these take the left-endpoint form
+\[
+\sum_j\sigma(\bv(t_j))\big(\bW(t_{j+1})-\bW(t_j)\big).
+\]
+
+Unlike ordinary Riemann integration, the evaluation convention matters. A different convention, such as Stratonovich integration, generally changes the drift when $\sigma$ depends on the state (see Section~\ref{sec:ito-stratonovich}).
+\end{definition}
+
+For example, global Lipschitz and linear-growth assumptions on $f$ and $\sigma$, together with a square-integrable initial state independent of future Brownian increments, ensure a unique global strong solution. We do not develop the existence theory here; these assumptions indicate the role played by regularity conditions, analogous to those required for deterministic ODEs.
+
+Two properties of the It\^o integral, both consequences of the non-anticipating (left-endpoint) construction, are used constantly in what follows.
+
+\begin{proposition}[Zero Mean and It\^o Isometry]
+\label{prop:ito-isometry}
+Let $g(s)$ be adapted (it depends only on $\{W(u)\}_{u\le s}$) with $\E\int_0^t g(s)^2\,\dd s<\infty$. Then
+\[
+\E\!\left[\int_0^t g(s)\,\dd W(s)\right]=0,
+\qquad
+\E\!\left[\left(\int_0^t g(s)\,\dd W(s)\right)^{2}\right]=\E\!\left[\int_0^t g(s)^2\,\dd s\right].
+\]
+\end{proposition}
+
+\noindent\emph{Reason.} In a left-endpoint sum, $g(t_j)$ is independent of the future increment $\Delta W_j$, so $\E[g(t_j)\Delta W_j]=\E[g(t_j)]\E[\Delta W_j]=0$ and cross terms $\E[g(t_j)g(t_k)\Delta W_j\Delta W_k]$ ($j<k$) vanish; the diagonal terms give $\E[g(t_j)^2]\Delta t$. For a deterministic $g$ the integral is a centred Gaussian with variance $\int_0^t g^2\,\dd s$.
+
+\begin{example}[The Ornstein--Uhlenbeck Process]
+\label{ex:ornstein-uhlenbeck}
+In one dimension, linear relaxation toward zero with rate $\gamma>0$ and constant noise amplitude $\sigma>0$ gives
+\begin{equation}
+\dd v=-\gamma v\,\dd t+\sigma\,\dd W.
+\end{equation}
+
+This is the \emph{Ornstein--Uhlenbeck process}, the classical Langevin model for a particle velocity subject to viscous friction and random molecular impacts. Its drift is the same linear relaxation encountered in deterministic first-order equations, while its noise term represents the fluctuating forcing. It also describes the subthreshold dynamics of a leaky integrate-and-fire neuron driven by Gaussian noise after shifting the deterministic equilibrium to zero; a full spiking model additionally requires a threshold and reset rule.
+\end{example}
+
+\subsection{It\^o's Lemma: The Stochastic Chain Rule}
+\label{sec:ito-lemma}
+
+For a deterministic path $x(t)$ and a smooth $g$, the chain rule reads $\dd g(x)=g'(x)\,\dd x$. For an It\^o process this fails by a term of order $\dd t$, because $(\dd v)^2=\sigma^2\,\dd t$ is not negligible.
+
+\begin{theorem}[It\^o's Lemma]
+\label{thm:ito-lemma}
+Let $v(t)$ solve the scalar It\^o equation $\dd v=f(v)\,\dd t+\sigma(v)\,\dd W$ and let $g(t,v)$ be $C^1$ in $t$ and $C^2$ in $v$. Then $Y(t)=g(t,v(t))$ satisfies
+\begin{equation}
+\label{eq:ito-lemma-1d}
+\dd Y=\Big(\partial_t g+f\,\partial_v g+\tfrac12\sigma^2\,\partial_v^2 g\Big)\dd t+\sigma\,\partial_v g\,\dd W,
+\end{equation}
+with all functions evaluated at $(t,v(t))$. For $g=g(v)$ alone this is
+\[
+\dd g(v)=g'(v)\,\dd v+\tfrac12 g''(v)\,\sigma(v)^2\,\dd t .
+\]
+In the multidimensional case $\dd\bv=f(\bv)\,\dd t+\sigma(\bv)\,\dd\bW$ with $g(t,\bv)\in C^{1,2}$,
+\begin{equation}
+\label{eq:ito-lemma-nd}
+\dd g=\Big(\partial_t g+f\cdot\nabla g+\tfrac12\operatorname{tr}\!\big[\sigma\sigma^{\top}\nabla^2 g\big]\Big)\dd t+(\nabla g)^{\top}\sigma\,\dd\bW,
+\end{equation}
+where $\nabla^2 g$ is the Hessian.
+\end{theorem}
+
+\begin{proof}[Heuristic derivation]
+Expand $g(t+\dd t,\,v+\dd v)$ to second order:
+\[
+\dd g=\partial_t g\,\dd t+\partial_v g\,\dd v+\tfrac12\partial_v^2 g\,(\dd v)^2+\partial_t\partial_v g\,\dd t\,\dd v+\tfrac12\partial_t^2 g\,(\dd t)^2+\cdots
+\]
+Insert $\dd v=f\,\dd t+\sigma\,\dd W$ and apply the multiplication table~\eqref{eq:ito-table}: $(\dd v)^2=\sigma^2(\dd W)^2=\sigma^2\,\dd t$, while $\dd t\,\dd v$ and $(\dd t)^2$ are of higher order and drop out. Collecting terms gives~\eqref{eq:ito-lemma-1d}. In dimension $d$ the same computation uses $\dd v_i\,\dd v_j=(\sigma\sigma^\top)_{ij}\,\dd t$. A rigorous proof replaces the expansion by Taylor's theorem with remainder on a partition and uses Proposition~\ref{prop:quadratic-variation} (in its weighted form $\sum g(t_j)(\Delta W_j)^2\to\int g\,\dd t$) to pass to the limit.
+\end{proof}
+
+\begin{definition}[Infinitesimal Generator]
+\label{def:generator}
+The operator acting on time-independent smooth $g$,
+\[
+\mathcal L g(\bv):=f(\bv)\cdot\nabla g(\bv)+\tfrac12\operatorname{tr}\!\big[\sigma(\bv)\sigma(\bv)^{\top}\nabla^2g(\bv)\big],
+\]
+is the \emph{generator} of the diffusion. By It\^o's lemma and Proposition~\ref{prop:ito-isometry} (the stochastic integral has zero mean when $\nabla g^\top\sigma$ is suitably integrable),
+\begin{equation}
+\label{eq:dynkin}
+\frac{\dd}{\dd t}\E\big[g(\bv(t))\big]=\E\big[\mathcal Lg(\bv(t))\big].
+\end{equation}
+\end{definition}
+
+Equation~\eqref{eq:dynkin} is the origin of both moment equations (below) and the Fokker--Planck equation (Theorem~\ref{thm:fokker-planck-nd}), which is the adjoint $\mathcal L^{\dagger}$ acting on the density.
+
+\begin{example}[Geometric Brownian Motion and Log-Normal Fluctuations]
+\label{ex:gbm}
+Consider multiplicative noise $\dd S=\mu S\,\dd t+\sigma S\,\dd W$, a minimal model for a quantity whose fluctuations scale with its size (for instance a synaptic weight under multiplicative plasticity noise). Take $g(S)=\ln S$, so $g'=1/S$, $g''=-1/S^2$. Then
+\[
+\dd(\ln S)=\frac{1}{S}\big(\mu S\,\dd t+\sigma S\,\dd W\big)-\frac12\frac{1}{S^2}\sigma^2S^2\,\dd t=\Big(\mu-\frac{\sigma^2}{2}\Big)\dd t+\sigma\,\dd W,
+\]
+an arithmetic Brownian motion with drift, which integrates directly:
+\[
+S(t)=S(0)\exp\!\Big[\Big(\mu-\frac{\sigma^2}{2}\Big)t+\sigma W(t)\Big].
+\]
+Hence $S(t)$ is log-normal, $\E[S(t)]=S(0)e^{\mu t}$, yet the typical (median) path grows at the smaller rate $\mu-\sigma^2/2$: the mean is dominated by rare large excursions. The shift $-\sigma^2/2$ is the It\^o correction and has no counterpart in deterministic calculus.
+\end{example}
+
+\begin{example}[Explicit Solution of the Ornstein--Uhlenbeck Process]
+\label{ex:ou-solution}
+Apply It\^o's lemma to $g(t,v)=e^{\gamma t}v$ for $\dd v=-\gamma v\,\dd t+\sigma\,\dd W$. Since $\partial_t g=\gamma e^{\gamma t}v$, $\partial_vg=e^{\gamma t}$, $\partial_v^2g=0$,
+\[
+\dd\big(e^{\gamma t}v\big)=\gamma e^{\gamma t}v\,\dd t+e^{\gamma t}(-\gamma v\,\dd t+\sigma\,\dd W)=\sigma e^{\gamma t}\,\dd W,
+\]
+so
+\[
+v(t)=v(0)e^{-\gamma t}+\sigma\int_0^te^{-\gamma(t-s)}\,\dd W(s).
+\]
+The integrand is deterministic, so by Proposition~\ref{prop:ito-isometry} $v(t)$ is Gaussian with
+\[
+\E[v(t)]=v(0)e^{-\gamma t},\qquad \var(v(t))=\sigma^2\!\int_0^te^{-2\gamma(t-s)}\dd s=\frac{\sigma^2}{2\gamma}\big(1-e^{-2\gamma t}\big).
+\]
+As $t\to\infty$, $v$ converges in law to $\mathcal N\!\big(0,\sigma^2/(2\gamma)\big)$, matching the stationary density found in Example~\ref{ex:noise-genetic}. In the stationary regime, the autocovariance and power spectrum are
+\begin{equation}
+\label{eq:ou-autocov}
+C(\tau)=\frac{\sigma^2}{2\gamma}e^{-\gamma|\tau|},\qquad
+S(\omega)=\int_{-\infty}^{\infty}C(\tau)e^{-i\omega\tau}\,\dd\tau=\frac{\sigma^2}{\gamma^2+\omega^2}.
+\end{equation}
+The correlation time is $1/\gamma$ and the spectrum is Lorentzian, flat below the corner frequency $\gamma$ and decaying as $\omega^{-2}$ above it. This is the standard signature of membrane-potential or synaptic-current noise filtered by a first-order low-pass membrane.
+\end{example}
+
+\subsubsection*{Moment equations}
+
+Taking $g(v)=v$ and $g(v)=v^2$ in~\eqref{eq:dynkin} gives, for the scalar equation $\dd v=f(v)\,\dd t+\sigma(v)\,\dd W$,
+\begin{equation}
+\label{eq:moment-equations}
+\frac{\dd}{\dd t}\E[v]=\E[f(v)],\qquad
+\frac{\dd}{\dd t}\E[v^2]=2\E[v\,f(v)]+\E[\sigma(v)^2],
+\end{equation}
+and in general $\frac{\dd}{\dd t}\E[v^n]=n\E[v^{n-1}f]+\tfrac12n(n-1)\E[v^{n-2}\sigma^2]$. For the Ornstein--Uhlenbeck process, $f=-\gamma v$, $\sigma$ constant, the system closes: $\dot m=-\gamma m$ and $\frac{\dd}{\dd t}\E[v^2]=-2\gamma\E[v^2]+\sigma^2$, reproducing the mean and variance above without solving the SDE. For a nonlinear drift, e.g.\ $f(v)=-v^3$, the equation for $\E[v^n]$ involves $\E[v^{n+2}]$, so the hierarchy does not close and one needs a closure approximation (Gaussian closure, linear-noise approximation) or numerical simulation.
+
+\subsection{It\^o versus Stratonovich: Interpretation and Conversion}
+\label{sec:ito-stratonovich}
+
+When $\sigma$ depends on the state, the value of the stochastic integral depends on where in each interval $\sigma$ is sampled. The two standard choices are:
+\begin{itemize}
+\item \textbf{It\^o} (left endpoint): $\sum_j\sigma(v_j)\,\Delta W_j$. The integrand is non-anticipating, the integral is a martingale, and It\^o's lemma has the correction term of Theorem~\ref{thm:ito-lemma}. This is the natural convention in mathematics, finance, and numerical schemes.
+\item \textbf{Stratonovich} (midpoint): $\sum_j\sigma\big(\tfrac{v_j+v_{j+1}}{2}\big)\,\Delta W_j$, written $\int\sigma(v)\circ\dd W$. The ordinary chain rule holds, $\dd g(v)=g'(v)\circ\dd v$, so changes of variables look classical.
+\end{itemize}
+
+\begin{definition}[Stratonovich Equation]
+\label{def:stratonovich}
+The \emph{Stratonovich SDE} $\dd v=f_{\mathrm S}(v)\,\dd t+\sigma(v)\circ\dd W$ means
+\[
+v(t)=v(0)+\int_0^tf_{\mathrm S}(v)\,\dd s+\int_0^t\sigma(v)\circ\dd W,
+\]
+with the midpoint rule for the last integral.
+\end{definition}
+
+\begin{proposition}[Conversion Formula]
+\label{prop:ito-strat-conversion}
+The Stratonovich equation $\dd v=f_{\mathrm S}(v)\,\dd t+\sigma(v)\circ\dd W$ is equivalent to the It\^o equation $\dd v=f_{\mathrm{It\hat o}}(v)\,\dd t+\sigma(v)\,\dd W$ with
+\begin{equation}
+\label{eq:conversion-1d}
+f_{\mathrm{It\hat o}}(v)=f_{\mathrm S}(v)+\tfrac12\,\sigma(v)\,\sigma'(v).
+\end{equation}
+In dimension $d$ with noise matrix $\sigma_{ik}(\bv)$,
+\begin{equation}
+\label{eq:conversion-nd}
+f^{\mathrm{It\hat o}}_i(\bv)=f^{\mathrm S}_i(\bv)+\frac12\sum_{j=1}^d\sum_{k=1}^m\sigma_{jk}(\bv)\,\frac{\partial\sigma_{ik}}{\partial v_j}(\bv).
+\end{equation}
+In particular, the two interpretations coincide when $\sigma$ is constant (additive noise).
+\end{proposition}
+
+\begin{proof}[Derivation in one dimension]
+Let $v_{\mathrm m}=v_j+\tfrac12\Delta v$ be the midpoint value. Expanding $\sigma$ about $v_j$,
+\[
+\sigma(v_{\mathrm m})\approx\sigma(v_j)+\tfrac12\sigma'(v_j)\Delta v,\qquad \Delta v\approx\sigma(v_j)\Delta W_j+O(\Delta t).
+\]
+Hence
+\[
+\sum_j\sigma(v_{\mathrm m})\Delta W_j=\sum_j\sigma(v_j)\Delta W_j+\tfrac12\sum_j\sigma'(v_j)\sigma(v_j)(\Delta W_j)^2+o(1).
+\]
+By Proposition~\ref{prop:quadratic-variation} the last sum converges to $\tfrac12\int\sigma\sigma'\,\dd t$. Thus
+\[
+\int\sigma\circ\dd W=\int\sigma\,\dd W+\tfrac12\int\sigma\sigma'\,\dd t,
+\]
+which moves $\tfrac12\sigma\sigma'$ into the drift as in~\eqref{eq:conversion-1d}.
+\end{proof}
+
+\begin{remark}[Which Convention Is Physically Correct?]
+\label{rem:which-convention}
+The mathematics does not choose; the \emph{modelling} does.
+\begin{itemize}
+\item If the noise is a limit of real, smooth, rapidly fluctuating (colored) noise $\xi_\varepsilon(t)$ with correlation time $\varepsilon\to0$ (for instance fluctuating synaptic conductance or channel gating treated as fast Gaussian forcing), then by the \emph{Wong--Zakai theorem} the solutions of the ordinary ODEs $\dot v=f(v)+\sigma(v)\xi_\varepsilon(t)$ converge to the \emph{Stratonovich} solution. Stratonovich is the natural reading of a ``physical'' state-dependent white noise.
+\item If the noise arises from discrete, memoryless events (molecular reactions, Poisson spike arrivals diffusion-approximated, chemical Langevin equations) and the amplitude is fixed by the state \emph{before} each kick, the It\^o form is the correct one.
+\item Because the conversion~\eqref{eq:conversion-1d} is exact, no information is lost: a model stated in one convention can always be rewritten in the other. What must never happen is to \emph{mix} them, for example simulating a Stratonovich model with a plain Euler--Maruyama step and an uncorrected drift.
+\end{itemize}
+\end{remark}
+
+\begin{example}[Multiplicative Noise Changes the Mean]
+\label{ex:strat-gbm}
+Take $\dd S=\mu S\,\dd t+\sigma S\circ\dd W$ (Stratonovich). Here $\sigma(S)=\sigma S$, $\sigma'=\sigma$, so the equivalent It\^o drift is $(\mu+\tfrac12\sigma^2)S$. With the ordinary chain rule, $\dd(\ln S)=\mu\,\dd t+\sigma\circ\dd W$, giving $S(t)=S(0)e^{\mu t+\sigma W(t)}$ and $\E[S(t)]=S(0)e^{(\mu+\sigma^2/2)t}$. Compare Example~\ref{ex:gbm}: the same drift coefficient $\mu$ gives a mean growth rate of $\mu$ in It\^o form but $\mu+\sigma^2/2$ in Stratonovich form. Which is correct depends on Remark~\ref{rem:which-convention}.
+\end{example}
+
+\subsection{Numerical Integration of SDEs}
+\label{sec:numerical-sde}
+
+Closed-form solutions are rare; simulation is the working tool. Fix a step $\Delta t$ and grid $t_k=k\Delta t$.
+
+\begin{definition}[Euler--Maruyama Scheme]
+\label{def:euler-maruyama}
+For the It\^o equation $\dd\bv=f(\bv)\,\dd t+\sigma(\bv)\,\dd\bW$,
+\begin{equation}
+\label{eq:euler-maruyama}
+\bv_{k+1}=\bv_k+f(\bv_k)\,\Delta t+\sigma(\bv_k)\,\sqrt{\Delta t}\;\boldsymbol\xi_k,\qquad \boldsymbol\xi_k\sim\mathcal N(0,I_m)\ \text{i.i.d.}
+\end{equation}
+Here $\Delta\bW_k=\sqrt{\Delta t}\,\boldsymbol\xi_k$ is an exact sample of the Wiener increment; the noise enters with $\sqrt{\Delta t}$, not $\Delta t$.
+\end{definition}
+
+\noindent The $\sqrt{\Delta t}$ scaling is forced by Definition~\ref{def:wiener-process}: increments have variance $\Delta t$. Using $\Delta t\,\xi_k$ would make the noise vanish as $\Delta t\to0$. Two notions of accuracy are used:
+\begin{itemize}
+\item \emph{Strong order}: $\E|\bv_N-\bv(T)|\le C\,\Delta t^{\alpha}$ (pathwise accuracy for the \emph{same} Brownian path). Euler--Maruyama has strong order $\alpha=\tfrac12$.
+\item \emph{Weak order}: $|\E\varphi(\bv_N)-\E\varphi(\bv(T))|\le C\,\Delta t^{\beta}$ (accuracy of expectations, histograms, firing rates). Euler--Maruyama has weak order $\beta=1$.
+\end{itemize}
+Most computational neuroscience quantities (moments, spike statistics, densities) are weak quantities, so Euler--Maruyama with a small step is usually adequate.
+
+\begin{definition}[Milstein Correction and Heun Scheme]
+\label{def:milstein}
+For scalar noise, the \emph{Milstein scheme} adds the next term of the It\^o--Taylor expansion,
+\begin{equation}
+\label{eq:milstein}
+v_{k+1}=v_k+f(v_k)\Delta t+\sigma(v_k)\Delta W_k+\tfrac12\sigma(v_k)\sigma'(v_k)\big[(\Delta W_k)^2-\Delta t\big],
+\end{equation}
+which raises the strong order to $1$ (the bracket has zero mean, consistent with Proposition~\ref{prop:quadratic-variation}). For additive noise $\sigma'=0$ and Milstein coincides with Euler--Maruyama. For \emph{Stratonovich} equations, either convert the drift with~\eqref{eq:conversion-nd} and use~\eqref{eq:euler-maruyama}, or use the \emph{stochastic Heun} predictor--corrector,
+\[
+\tilde v=v_k+f_{\mathrm S}(v_k)\Delta t+\sigma(v_k)\Delta W_k,\qquad
+v_{k+1}=v_k+\tfrac12\big[f_{\mathrm S}(v_k)+f_{\mathrm S}(\tilde v)\big]\Delta t+\tfrac12\big[\sigma(v_k)+\sigma(\tilde v)\big]\Delta W_k,
+\]
+which converges to the Stratonovich solution.
+\end{definition}
+
+\begin{example}[Exact Update for the Ornstein--Uhlenbeck Process]
+\label{ex:ou-exact}
+Because Example~\ref{ex:ou-solution} is Gaussian, the OU process can be advanced \emph{exactly} for any step:
+\[
+v_{k+1}=v_ke^{-\gamma\Delta t}+\sigma\sqrt{\frac{1-e^{-2\gamma\Delta t}}{2\gamma}}\;\xi_k,\qquad\xi_k\sim\mathcal N(0,1),
+\]
+which agrees with~\eqref{eq:euler-maruyama} to first order in $\gamma\Delta t$ and remains stable for large $\gamma\Delta t$. Euler--Maruyama itself requires $\gamma\Delta t\ll1$.
+\end{example}
+
+\begin{example}[Noisy Leaky Integrate-and-Fire Neuron]
+\label{ex:noisy-lif}
+Consider the membrane equation $\dd V=\frac{-(V-E_L)+RI}{\tau_m}\,\dd t+\sigma_V\,\dd W$ with threshold $V_{\mathrm{th}}$ and reset $V_{\mathrm r}$ (so $\sigma_V$ has units $\mathrm{V}/\sqrt{\mathrm s}$). Euler--Maruyama gives the following loop.
+\begin{verbatim}
+import numpy as np
+rng = np.random.default_rng(0)            # fix the seed: reproducibility
+dt, T = 1e-4, 2.0                         # time step and duration (s)
+tau, EL, R_I, sigma = 0.02, -0.065, 0.018, 0.004
+Vth, Vr = -0.050, -0.065
+n = int(T/dt); V = np.empty(n); V[0] = EL; spikes = []
+for k in range(n-1):
+    drift = (-(V[k]-EL) + R_I)/tau
+    V[k+1] = V[k] + drift*dt + sigma*np.sqrt(dt)*rng.standard_normal()
+    if V[k+1] >= Vth:                     # threshold crossing
+        V[k+1] = Vr; spikes.append((k+1)*dt)
+\end{verbatim}
+Three practical remarks. (i)~Threshold crossings between grid points are missed, which biases the firing rate at $O(\sqrt{\Delta t})$; reduce $\Delta t$ and check convergence. (ii)~Validate the code on the subthreshold OU limit (no threshold): the empirical variance must approach $\sigma_V^2\tau_m/2$ (here $\gamma=1/\tau_m$). (iii)~Always average over many realizations when estimating weak quantities; a single path is a single noise sample.
+\end{example}
+
+\section{Diffusion Equations and Stationary Probability Flows}
+\label{sec:fokker-planck-section}
+
+\subsection{The Fokker--Planck Equation and Infinitesimal Moments}
+
+
+Instead of following a single random trajectory, we may study the time-dependent probability density $p(v,t)$ of the state across all noise realizations. Under suitable assumptions, this density satisfies a deterministic PDE.
+
+\begin{theorem}[Fokker--Planck Equation for an It\^o Diffusion]
+\label{thm:fokker-planck}
+Let $v(t)$ solve the one-dimensional It\^o equation
+\[
+\dd v=f(v)\,\dd t+\sigma(v)\,\dd W.
+\]
+
+Assume that the coefficients and the probability density $p(v,t)$ are sufficiently regular for the following derivatives to exist classically. Then
+\begin{equation}
+\frac{\partial p}{\partial t}
+=-\frac{\partial}{\partial v}\big[f(v)p\big]
++\frac12\frac{\partial^2}{\partial v^2}\big[\sigma(v)^2p\big].
+\end{equation}
+
+With less regularity, the equation is interpreted weakly; an arbitrary stochastic differential equation need not have a smooth density.
+\end{theorem}
+
+\begin{proof}[Heuristic Derivation via the Kramers--Moyal Expansion]
+\leavevmode\par\nobreak
+\textit{Step 1: express evolution through transition moments.} For a Markov process, the conditional distribution of a future state depends on the past only through the present state. Under conditions that justify the moment expansion, the forward equation can formally be written as
+
+\begin{equation}
+\frac{\partial p}{\partial t}
+=\sum_{n=1}^{\infty}\frac{(-1)^n}{n!}
+\frac{\partial^n}{\partial v^n}\big[D_n(v)p\big].
+\end{equation}
+The coefficients in this expansion are defined by
+\begin{equation}
+D_n(v):=\lim_{\Delta t\downarrow0}\frac{1}{\Delta t}
+\E\big[(v(t+\Delta t)-v(t))^n\mid v(t)=v\big].
+\end{equation}
+
+These are conditional raw moments of the increment per unit time, not moments centered about its conditional mean. The Kramers--Moyal series is used here as a formal tool, rather than asserted as a convergent representation for every Markov process.
+
+\textit{Step 2: compute the infinitesimal moments.} Over a short interval, freezing the coefficients at the current state gives the leading approximation
+
+\begin{align}
+v(t+\Delta t)-v(t)
+&=\int_t^{t+\Delta t}f(v(s))\,\dd s
++\int_t^{t+\Delta t}\sigma(v(s))\,\dd W(s)\notag\\
+&\approx f(v)\Delta t+\sigma(v)\Delta W,
+\end{align}
+where $\Delta W\sim\mathcal{N}(0,\Delta t)$ independently of the current state. All expectations below are conditional on $v(t)=v$. Since $\E[\Delta W]=0$,
+\begin{equation}
+\begin{aligned}
+D_1(v) &= \lim_{\Delta t\downarrow0}\frac{f(v)\Delta t}{\Delta t} \\
+&= f(v).
+\end{aligned}
+\end{equation}
+For the second moment, the frozen-coefficient approximation gives
+\begin{align}
+\E\big[(v(t+\Delta t)-v(t))^2\mid v(t)=v\big]
+&\approx f(v)^2\Delta t^2
++2f(v)\sigma(v)\Delta t\,\E[\Delta W]\notag\\
+&\quad+\sigma(v)^2\E[(\Delta W)^2]\notag\\
+&=f(v)^2\Delta t^2+\sigma(v)^2\Delta t,
+\end{align}
+because
+\[
+\begin{aligned}
+\E[(\Delta W)^2] &= \var(\Delta W) \\
+&= \Delta t.
+\end{aligned}
+\]
+Dividing by $\Delta t$ and taking the limit yields
+\begin{equation}
+D_2(v)=\sigma(v)^2.
+\end{equation}
+
+For $n\ge3$, the higher increment moments are
+\[
+o(\Delta t)
+\]
+ under suitable moment bounds, so $D_n(v)=0$. The Gaussian scaling underlying this fact is
+\[
+\E[|\Delta W|^n]=O((\Delta t)^{n/2});
+\]
+for example,
+\[
+\begin{gathered}
+\E[(\Delta W)^3]=0 \\
+\E[(\Delta W)^4]=3\Delta t^2.
+\end{gathered}
+\]
+
+The neglected terms must be controlled at the level of conditional moments to turn this heuristic into a proof.
+
+\textit{Step 3: retain the first two terms.} Substitution into the formal expansion gives
+
+\begin{align}
+\frac{\partial p}{\partial t}
+&=-\frac{\partial}{\partial v}(D_1p)
++\frac12\frac{\partial^2}{\partial v^2}(D_2p)\notag\\
+&=-\frac{\partial}{\partial v}\big[f(v)p\big]
++\frac12\frac{\partial^2}{\partial v^2}\big[\sigma(v)^2p\big],
+\end{align}
+which is the Fokker--Planck equation. A rigorous weak derivation, valid in any dimension, is given in the proof of Theorem~\ref{thm:fokker-planck-nd}, using It\^o's formula on smooth compactly supported test functions in place of the formal series.
+\end{proof}
+
+\subsection{The Multidimensional Fokker--Planck Equation}
+\label{sec:fokker-planck-nd}
+
+Neural populations and latent-variable models live in $d\gg1$ dimensions, with drift vector $f(\bv)$ and \emph{diffusion matrix} $G(\bv):=\sigma(\bv)\sigma(\bv)^{\top}\in\R^{d\times d}$ (symmetric positive semidefinite).
+
+\begin{theorem}[Fokker--Planck Equation in $\R^d$]
+\label{thm:fokker-planck-nd}
+Let $\bv(t)\in\R^d$ solve $\dd\bv=f(\bv)\,\dd t+\sigma(\bv)\,\dd\bW$ and let $p(\bv,t)$ be its (sufficiently regular) density. Then
+\begin{equation}
+\label{eq:fp-nd}
+\frac{\partial p}{\partial t}
+=-\sum_{i=1}^d\frac{\partial}{\partial v_i}\big[f_i\,p\big]
++\frac12\sum_{i,j=1}^d\frac{\partial^2}{\partial v_i\partial v_j}\big[G_{ij}\,p\big]
+=-\nabla\!\cdot\!\bm J,
+\end{equation}
+with probability current
+\begin{equation}
+\label{eq:current-nd}
+J_i=f_i\,p-\frac12\sum_{j=1}^d\frac{\partial}{\partial v_j}\big[G_{ij}\,p\big].
+\end{equation}
+\end{theorem}
+
+\begin{proof}[Weak derivation]
+Let $\varphi\in C_c^\infty(\R^d)$. By~\eqref{eq:dynkin},
+\[
+\frac{\dd}{\dd t}\int\varphi\,p\,\dd\bv=\int\mathcal L\varphi\;p\,\dd\bv=\int\Big[f\cdot\nabla\varphi+\tfrac12\sum_{ij}G_{ij}\partial_i\partial_j\varphi\Big]p\,\dd\bv .
+\]
+Integrate by parts once in the first term and twice in the second (boundary terms vanish since $\varphi$ has compact support):
+\[
+\int\varphi\,\partial_tp\,\dd\bv=\int\varphi\Big[-\sum_i\partial_i(f_ip)+\tfrac12\sum_{ij}\partial_i\partial_j(G_{ij}p)\Big]\dd\bv .
+\]
+Since $\varphi$ is arbitrary, the bracket equals $\partial_tp$ pointwise (weakly in general). This is rigorous whenever~\eqref{eq:dynkin} holds, and requires no frozen-coefficient or series assumption.
+\end{proof}
+
+\begin{corollary}[Gradient Systems and Boltzmann Stationary Density]
+\label{cor:gradient-stationary}
+If $f=-\nabla U$ and $G=2D\,I_d$ with constant $D>0$, then (when $e^{-U/D}$ is integrable) the stationary density is
+\[
+p_\infty(\bv)=\frac{1}{Z}\exp\!\Big(-\frac{U(\bv)}{D}\Big),\qquad Z=\int e^{-U/D}\dd\bv,
+\]
+and the stationary current vanishes identically (\emph{detailed balance}).
+\end{corollary}
+
+\begin{proof}
+With these coefficients $J=-p\nabla U-D\nabla p$. Setting $J=0$ gives $\nabla p=-p\nabla U/D$, solved by the stated $p_\infty$; then $\partial_tp=-\nabla\!\cdot\!J=0$.
+\end{proof}
+
+\noindent Corollary~\ref{cor:gradient-stationary} is the bridge between SDEs and statistical mechanics, and between neural dynamics and sampling: the choice $U=-\log\pi$, $D=1$ yields \emph{Langevin dynamics} $\dd\bv=\nabla\log\pi(\bv)\,\dd t+\sqrt2\,\dd\bW$, whose stationary law is $\pi$. When $f$ is not a gradient (e.g.\ asymmetric synaptic coupling in a recurrent network), the stationary current is generally nonzero: the system is out of equilibrium and sustains persistent probability circulation.
+
+\begin{proposition}[Multidimensional Ornstein--Uhlenbeck Process]
+\label{prop:nd-ou}
+Let $\dd\bv=-A\bv\,\dd t+\sigma\,\dd\bW$ with constant $A\in\R^{d\times d}$ whose eigenvalues have positive real part, and constant $\sigma$. The stationary law is $\mathcal N(0,C)$, where the covariance $C$ solves the \emph{Lyapunov equation}
+\begin{equation}
+\label{eq:lyapunov}
+AC+CA^{\top}=\sigma\sigma^{\top}.
+\end{equation}
+\end{proposition}
+
+\begin{proof}
+Apply the moment equations to $g=v_iv_j$ (It\^o's lemma, Theorem~\ref{thm:ito-lemma}): $\frac{\dd}{\dd t}\E[\bv\bv^\top]=-A\,\E[\bv\bv^\top]-\E[\bv\bv^\top]A^\top+\sigma\sigma^\top$. The stationary solution (zero left side) is~\eqref{eq:lyapunov}; the Gaussianity follows because the explicit solution $\bv(t)=e^{-At}\bv(0)+\int_0^te^{-A(t-s)}\sigma\,\dd\bW(s)$ is a linear functional of Gaussian noise.
+\end{proof}
+
+\noindent For linearized rate networks, $A=\tfrac{1}{\tau}(I-W_{\mathrm{syn}})$ and equation~\eqref{eq:lyapunov} yields the full noise-correlation matrix across neurons, a quantity that can be compared directly with recorded pairwise correlations. In high dimension the Fokker--Planck PDE itself is intractable (curse of dimensionality); one therefore works with moment closures, the Gaussian (linear-noise) approximation, or ensemble simulation as in Section~\ref{sec:numerical-sde}.
+
+\begin{remark}[Fokker--Planck Equation for Stratonovich Equations]
+\label{rem:fp-stratonovich}
+For the scalar Stratonovich equation $\dd v=f_{\mathrm S}\,\dd t+\sigma\circ\dd W$, substituting~\eqref{eq:conversion-1d} into Theorem~\ref{thm:fokker-planck} gives
+\[
+\partial_tp=-\partial_v\big[f_{\mathrm S}\,p\big]+\tfrac12\,\partial_v\!\big[\sigma\,\partial_v(\sigma\,p)\big],
+\]
+as one checks by expanding $\partial_v(\sigma^2p)=\sigma'\sigma p+\sigma\,\partial_v(\sigma p)$. The two Fokker--Planck equations differ exactly when the two SDE interpretations differ.
+\end{remark}
+
+\subsection{Probability Currents and Stationary Densities}
+
+\begin{remark}[A Continuity Equation with Diffusive Current]
+The Fokker--Planck equation is a continuity equation of the type derived in Example~\ref{ex:continuity-equation}:
+\begin{equation}
+\frac{\partial p}{\partial t}+\frac{\partial J}{\partial v}=0,
+\qquad J(v,t)=f(v)p(v,t)-\frac12\frac{\partial}{\partial v}\big[\sigma(v)^2p(v,t)\big].
+\end{equation}
+
+The first term in the probability current is deterministic transport by the drift; the second is a diffusive flux. For constant $\sigma$ and zero drift, this reduces to the heat equation with $D=\sigma^2/2$, studied in Section~\ref{sec:pde-methods}. Thus random trajectories produce the same diffusion equation for a probability density that describes heat conduction or molecular spreading in other contexts. Conservation of total probability requires suitable boundary conditions, such as zero flux at finite boundaries or vanishing current at infinity.
+\end{remark}
+
+\begin{example}[Noise in a Genetic Circuit or a Neuron]
+\label{ex:noise-genetic}
+For the Ornstein--Uhlenbeck process of Example~\ref{ex:ornstein-uhlenbeck}, the density satisfies
+\begin{equation}
+\frac{\partial p}{\partial t}
+=\gamma\frac{\partial}{\partial v}(vp)
++\frac{\sigma^2}{2}\frac{\partial^2p}{\partial v^2}.
+\end{equation}
+On the whole real line, the normalized stationary density is
+\begin{equation}
+p_\infty(v)=\sqrt{\frac{\gamma}{\pi\sigma^2}}
+\exp\left(-\frac{\gamma v^2}{\sigma^2}\right),
+\qquad \var(v)=\frac{\sigma^2}{2\gamma}.
+\end{equation}
+Indeed, 
+
+\[
+p_\infty'=-(2\gamma v/\sigma^2)p_\infty
+\] 
+
+so the stationary current 
+
+\[
+J_\infty=-\gamma v p_\infty-(\sigma^2/2)p_\infty'
+\] 
+
+vanishes identically. The restoring drift narrows the distribution, while noise broadens it. This balance models fluctuations of a subthreshold membrane potential around its equilibrium, or small fluctuations of gene expression around a stable mean. In the latter interpretation, $v$ is a deviation from the mean, not an unrestricted physical molecular count; threshold/reset dynamics or positivity constraints require additional modeling. The same density follows from Corollary~\ref{cor:gradient-stationary} with $U=\gamma v^2/2$ and $D=\sigma^2/2$, and agrees with the variance of Example~\ref{ex:ou-solution}.
+\end{example}
+
+\section{Time Reversal, Score Functions and Generative Diffusion Models}
+\label{sec:reverse-time}
+
+The Fokker--Planck equation describes how a density is carried \emph{forward} in time. A remarkable fact is that a diffusion can also be run \emph{backward}, provided one knows the gradient of the log-density of the process at each time. This is the mathematical core of modern score-based generative models and has a direct neuroscientific reading as sampling dynamics in neural circuits.
+
+\begin{definition}[Score Function]
+\label{def:score}
+For a density $p_t(\bv)=p(\bv,t)>0$, the \emph{score} is $\nabla_{\bv}\log p_t(\bv)$, the vector field pointing toward higher probability. It does not depend on the normalizing constant, which makes it learnable for unnormalized models.
+\end{definition}
+
+\subsection{Probability-Flow ODE and Reverse-Time SDE}
+
+Write~\eqref{eq:current-nd} with $G=\sigma\sigma^\top$ and the vector $(\nabla\!\cdot G)_i:=\sum_j\partial_jG_{ij}$. Since $\sum_j\partial_j(G_{ij}p)=p\,(\nabla\!\cdot G)_i+p\,(G\nabla\log p)_i$,
+\begin{equation}
+\label{eq:current-score}
+\bm J=p\,\Big[f-\tfrac12\nabla\!\cdot G-\tfrac12G\,\nabla\log p\Big].
+\end{equation}
+
+\begin{proposition}[Probability-Flow ODE]
+\label{prop:probability-flow}
+The deterministic ODE
+\begin{equation}
+\label{eq:probability-flow}
+\frac{\dd\bv}{\dd t}=f(\bv)-\tfrac12\nabla\!\cdot G(\bv)-\tfrac12G(\bv)\nabla\log p_t(\bv)
+\end{equation}
+has the same marginal densities $p_t$ as the SDE.
+\end{proposition}
+
+\begin{proof}
+By~\eqref{eq:current-score}, $\bm J=p\,\tilde f$ with $\tilde f$ the right-hand side of~\eqref{eq:probability-flow}, so the Fokker--Planck equation reads $\partial_tp=-\nabla\!\cdot(\tilde f p)$, which is the continuity (Liouville) equation of the ODE with velocity field $\tilde f$.
+\end{proof}
+
+\begin{theorem}[Time Reversal of a Diffusion (Anderson)]
+\label{thm:reverse-sde}
+Let $\bv(t)$ solve $\dd\bv=f(\bv,t)\,\dd t+\sigma(t)\,\dd\bW$ on $[0,T]$ with marginals $p_t$. Then the process $\bar\bv(t)=\bv(T-t)$ run backward has, as a process in reverse time, the SDE
+\begin{equation}
+\label{eq:reverse-sde}
+\dd\bv=\Big[f(\bv,t)-\nabla\!\cdot G(t)-G(t)\,\nabla\log p_t(\bv)\Big]\dd t+\sigma(t)\,\dd\bar{\bW},
+\end{equation}
+integrated from $t=T$ down to $t=0$, where $\dd t<0$, $G=\sigma\sigma^\top$, and $\bar{\bW}$ is a Wiener process in reverse time. For state-independent $G$ the term $\nabla\!\cdot G$ vanishes.
+\end{theorem}
+
+\begin{proof}[Consistency check at the level of the Fokker--Planck equation]
+Set $\tau=T-t$ and $q(\bv,\tau)=p(\bv,T-\tau)$. Then
+\[
+\partial_\tau q=-\partial_tp=\nabla\!\cdot(fp)-\tfrac12\sum_{ij}\partial_i\partial_j(G_{ij}p).
+\]
+We look for a drift $\hat f$ such that $q$ satisfies a Fokker--Planck equation with the \emph{same} diffusion $G$ and drift $\hat f$:
+$\partial_\tau q=-\nabla\!\cdot(\hat fq)+\tfrac12\sum_{ij}\partial_i\partial_j(G_{ij}q)$. Equating the two expressions and using $\sum_{ij}\partial_i\partial_j(G_{ij}p)=\nabla\!\cdot\big(p\,[\nabla\!\cdot G+G\nabla\log p]\big)$ gives
+\[
+\nabla\!\cdot\big(\hat fp\big)=-\nabla\!\cdot\big(fp\big)+\nabla\!\cdot\big(p\,[\nabla\!\cdot G+G\nabla\log p]\big),
+\]
+satisfied by $\hat f=-f+\nabla\!\cdot G+G\nabla\log p$. Written as an SDE in the reversed clock $\tau$, $\dd\bv=\hat f\,\dd\tau+\sigma\,\dd\bW_\tau$; changing back to $t=T-\tau$ ($\dd\tau=-\dd t$) gives the drift $f-\nabla\!\cdot G-G\nabla\log p$ of~\eqref{eq:reverse-sde} integrated backward. This shows the reverse SDE reproduces the correct marginals; the full statement about path laws is due to Anderson (1982) and Haussmann--Pardoux (1986).
+\end{proof}
+
+\noindent The correction $-G\nabla\log p_t$ is the only place where information about the data distribution enters; the ``noise term'' is the same as in the forward process. Diffusion is thus reversible once the score is known.
+
+\subsection{Forward Noising Processes and Denoising Score Matching}
+
+\begin{definition}[Variance-Preserving and Variance-Exploding SDEs]
+\label{def:vp-ve}
+Starting from a data point $\bv(0)\sim p_{\mathrm{data}}$, two standard forward processes are
+\begin{align}
+\text{VP:}\quad &\dd\bv=-\tfrac12\beta(t)\,\bv\,\dd t+\sqrt{\beta(t)}\,\dd\bW,\\
+\text{VE:}\quad &\dd\bv=\sqrt{\tfrac{\dd s(t)^2}{\dd t}}\,\dd\bW .
+\end{align}
+The VP equation is a time-dependent Ornstein--Uhlenbeck process (Example~\ref{ex:ornstein-uhlenbeck}); by Example~\ref{ex:ou-solution}, its transition kernel is Gaussian,
+\[
+\bv(t)\mid\bv(0)\sim\mathcal N\!\big(m(t)\bv(0),\,s(t)^2I\big),\quad m(t)=e^{-\frac12\int_0^t\beta},\ \ s(t)^2=1-e^{-\int_0^t\beta},
+\]
+so for large $t$ the law approaches $\mathcal N(0,I)$ regardless of the data: the data are transformed into pure Gaussian noise.
+\end{definition}
+
+The score $\nabla\log p_t$ is unknown, so it is approximated by a neural network $s_\theta(\bv,t)$. Because the kernel is Gaussian, the conditional score is explicit: $\nabla_{\bv}\log p_{0t}(\bv\mid\bv(0))=-(\bv-m\bv(0))/s^2=-\boldsymbol\epsilon/s$ for $\bv=m\bv(0)+s\boldsymbol\epsilon$, $\boldsymbol\epsilon\sim\mathcal N(0,I)$. The \emph{denoising score matching} objective is
+\begin{equation}
+\label{eq:dsm}
+\mathcal J(\theta)=\E_{t}\,\Big[\lambda(t)\,\E_{\bv(0)}\E_{\bv(t)\mid\bv(0)}\big\|s_\theta(\bv(t),t)-\nabla_{\bv}\log p_{0t}\big(\bv(t)\mid\bv(0)\big)\big\|^2\Big],
+\end{equation}
+with weight $\lambda(t)>0$ (commonly $\lambda\propto s(t)^2$). Its minimizer is $s_\theta(\bv,t)=\nabla\log p_t(\bv)$, the quantity needed in~\eqref{eq:reverse-sde} and~\eqref{eq:probability-flow}.
+
+\begin{remark}[Sampling Algorithm]
+\label{rem:sampling}
+To generate samples: (i)~draw $\bv(T)\sim\mathcal N(0,I)$; (ii)~integrate~\eqref{eq:reverse-sde} (with $s_\theta$ in place of the score) backward from $t=T$ to $0$ using the Euler--Maruyama scheme~\eqref{eq:euler-maruyama} with negative step: $\bv_{k-1}=\bv_k-\big[f-\nabla\!\cdot G-Gs_\theta\big]\Delta t+\sigma\sqrt{\Delta t}\,\boldsymbol\xi_k$; or (iii)~integrate the deterministic ODE~\eqref{eq:probability-flow}, which allows adaptive solvers and exact likelihoods. The step-size and weak-order discussion of Section~\ref{sec:numerical-sde} applies verbatim.
+\end{remark}
+
+\begin{remark}[Relevance for Computational Neuroscience]
+\label{rem:neuro-relevance}
+Three links are worth keeping in mind. (i)~Langevin dynamics $\dd\bv=\nabla\log\pi\,\dd t+\sqrt2\,\dd\bW$ (Corollary~\ref{cor:gradient-stationary}) is a candidate mechanism for \emph{neural sampling}: noisy recurrent dynamics whose stationary distribution encodes a posterior $\pi$. (ii)~Latent-variable models of neural population activity (e.g.\ latent SDEs fitted to spike trains) are It\^o equations in $\R^d$ simulated by~\eqref{eq:euler-maruyama} and compared with data through moments~\eqref{eq:moment-equations} and the Lyapunov equation~\eqref{eq:lyapunov}. (iii)~The score $\nabla\log p_t$ is a vector field on neural state space: the same object that, in Fokker--Planck terms, determines the stationary current and, in machine learning, the generative reverse process.
+\end{remark}
+
+\subsection*{Summary of the Toolbox}
+
+\begin{center}
+\begin{tabular}{@{}p{0.34\linewidth}p{0.58\linewidth}@{}}
+\toprule
+\textbf{Tool} & \textbf{Use in computational neuroscience} \\
+\midrule
+It\^o's lemma, Thm.~\ref{thm:ito-lemma} & Change of variables, exact solutions (OU, GBM), moment equations \\
+It\^o--Stratonovich, Prop.~\ref{prop:ito-strat-conversion} & Correct modelling of state-dependent (conductance) noise; no hidden drift errors \\
+Euler--Maruyama, Milstein, Heun & Simulating noisy neurons and networks, spike statistics \\
+Fokker--Planck in $\R^d$, Thm.~\ref{thm:fokker-planck-nd} & Densities, stationary distributions, probability currents, equilibrium vs.\ nonequilibrium \\
+Lyapunov equation~\eqref{eq:lyapunov} & Noise correlations in linearized recurrent networks \\
+Reverse SDE, Thm.~\ref{thm:reverse-sde} & Score-based generative models, sampling and inference \\
+\bottomrule
+\end{tabular}
+\end{center}
